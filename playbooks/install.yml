@@ -1,0 +1,93 @@
+- name: Prepare disks
+  hosts: iso
+  gather_facts: false
+  vars:
+    filesystems:
+      - { dev: /dev/nvme0n1p1, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
+      - { dev: /dev/nvme0n1p2, fstype: xfs, mount: /mnt, size: 70 }
+      - { dev: /dev/nvme0n1p3, fstype: xfs, mount: /mnt/home, size: 100 }
+
+    pacstrap_packages:
+      - base
+      - base-devel
+      - git
+      - linux
+      - linux-firmware
+      - sudo
+      - micro
+      - intel-ucode
+      - iwd
+      - impala
+      - efibootmgr
+      - networkmanager
+      - openresolv
+      - man-db
+      - python
+      - openssh
+
+  tasks:
+
+    - name: Check disk partitions
+      community.general.parted:
+        device: /dev/nvme0n1
+        state: info
+      register: disk_info
+
+    - name: Create disk partitions
+      community.general.parted:
+        device: /dev/nvme0n1
+        label: gpt
+        number: "{{ i + 1 }}"
+        part_start: "{{ (filesystems[:i] | map(attribute='size') | sum) * 1024 + 1 }}MiB"
+        part_end: "{{ (filesystems[:i + 1] | map(attribute='size') | sum) * 1024 + 1 }}MiB"
+        flags: "{{ item.flags | default(omit) }}"
+        state: present
+      loop: "{{ filesystems }}"
+      loop_control:
+        index_var: i
+      when: disk_info.partitions | length == 0
+
+    - name: Wait for udev
+      ansible.builtin.command: udevadm settle
+      changed_when: false
+
+    - name: Create filesystems
+      community.general.filesystem:
+        dev: "{{ item.dev }}"
+        fstype: "{{ item.fstype }}"
+        opts: "{{ item.opts | default(omit) }}"
+      loop: "{{ filesystems }}"
+
+    - name: Mount filesystems
+      ansible.posix.mount:
+        path: "{{ item.mount }}"
+        fstype: "{{ item.fstype }}"
+        src: "{{ item.dev }}"
+        state: ephemeral
+      loop: "{{ filesystems | sort(attribute='mount') }}"
+
+    - name: Pacstrap
+      ansible.builtin.command:
+        argv: "{{ ['pacstrap', '-K', '/mnt'] + pacstrap_packages }}"
+        creates: /mnt/usr/bin/pacman
+
+    - name: Generate fstab
+      ansible.builtin.command: genfstab -U /mnt
+      register: fstab
+      changed_when: false
+
+    - name: Apply fstab
+      ansible.builtin.copy:
+        content: "{{ fstab.stdout }}\n"
+        dest: /mnt/etc/fstab
+
+    - name: Generate ssh keys on install system
+      ansible.builtin.command:
+        cmd: arch-chroot /mnt ssh-keygen -A
+        creates: /mnt/etc/ssh/ssh_host_ed25519_key
+
+    - name: Start sshd on the install system
+      ansible.builtin.command: arch-chroot /mnt /usr/bin/sshd -D -p 2222 -o PermitRootLogin=yes -o PermitEmptyPasswords=yes
+      async: 7200
+      poll: 0
+      changed_when: false
