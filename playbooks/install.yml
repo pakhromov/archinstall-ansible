@@ -3,9 +3,9 @@
   gather_facts: false
   vars:
     filesystems:
-      - { dev: /dev/nvme0n1p1, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
-      - { dev: /dev/nvme0n1p2, fstype: xfs, mount: /mnt, size: 70 }
-      - { dev: /dev/nvme0n1p3, fstype: xfs, mount: /mnt/home, size: 100 }
+      - { dev: /dev/nvme0n1p4, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
+      - { dev: /dev/nvme0n1p5, fstype: xfs, mount: /mnt, size: 70 }
+      - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
 
     pacstrap_packages:
       - base
@@ -85,6 +85,10 @@
       ansible.builtin.command:
         cmd: arch-chroot /mnt ssh-keygen -A
         creates: /mnt/etc/ssh/ssh_host_ed25519_key
+
+    - name: Remove root password
+      ansible.builtin.command: arch-chroot /mnt passwd -d root
+      changed_when: false
 
     - name: Start sshd on the install system
       ansible.builtin.command: arch-chroot /mnt /usr/bin/sshd -D -p 2222 -o PermitRootLogin=yes -o PermitEmptyPasswords=yes
