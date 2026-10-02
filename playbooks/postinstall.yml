@@ -1,0 +1,248 @@
+- name: Postinstall
+  hosts: chroot
+
+  vars_prompt:
+    - name: user_password_hash
+      prompt: Password for root and user
+      private: true
+      confirm: true
+      encrypt: sha512_crypt
+      salt_size: 16
+
+  vars:
+    timezone: Europe/Stockholm
+    locale: en_US.UTF-8
+    lang: en_US.UTF-8
+    hostname: archlinux
+    username: pavel
+    user_groups: [wheel]
+    user_shell: /usr/bin/zsh
+    dotfiles_repo: https://github.com/pakhromov/dotfiles.git
+    dotfiles_git_dir: "/home/{{ username }}/.dotfiles-git"
+    dotfiles_work_tree: "/home/{{ username }}"
+    dotfiles_root: "/home/{{ username }}/.local/share/postinstall/root"
+    dotfiles_packages: "/home/{{ username }}/.local/share/postinstall"
+    user_script: "/home/{{ username }}/.local/share/postinstall/setup.sh"
+    repo_keys:
+      - 3056513887B78AEB   # chaotic-aur
+      - F3B607488DB35A47   # cachyos
+    repos:
+      - https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst
+      - https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst
+      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-keyring-20240331-1-any.pkg.tar.zst
+      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-mirrorlist-27-1-any.pkg.tar.zst
+      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-v3-mirrorlist-27-1-any.pkg.tar.zst
+      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-v4-mirrorlist-27-1-any.pkg.tar.zst
+      - https://mirror.cachyos.org/repo/x86_64/cachyos/pacman-7.1.0.r9.g54d9411-4-x86_64.pkg.tar.zst
+
+    GPU_drivers: [intel]
+    gpu_packages:
+      nvidia: [nvidia-open, nvidia-utils, lib32-nvidia-utils, libva-nvidia-driver]
+      amd: [mesa, lib32-mesa, vulkan-radeon, lib32-vulkan-radeon]
+      intel: [mesa, lib32-mesa, vulkan-intel, lib32-vulkan-intel, intel-media-driver]
+
+    services_enabled:
+      - iwd
+      - lidm
+      - chronyd-sync
+    services_disabled:
+      - systemd-networkd.service
+      - systemd-networkd.socket
+      - systemd-networkd-resolve-hook.socket
+      - systemd-networkd-varlink.socket
+      - systemd-resolved.service
+      - systemd-resolved-monitor.socket
+      - systemd-resolved-varlink.socket
+      - getty@tty1.service
+      - systemd-timesyncd.service
+      - systemd-userdbd.service
+      - systemd-userdbd.socket
+    services_masked:
+      - user@.service
+      - rtkit-daemon
+
+
+  tasks:
+    - name: Set timezone
+      ansible.builtin.file:
+        src: "/usr/share/zoneinfo/{{ timezone }}"
+        dest: /etc/localtime
+        state: link
+        force: true
+
+    - name: Generate locales
+      community.general.locale_gen:
+        name: "{{ locale }}"
+        state: present
+
+    - name: Set system language
+      ansible.builtin.copy:
+        content: "LANG={{ lang }}\n"
+        dest: /etc/locale.conf
+
+    - name: Set hostname
+      ansible.builtin.copy:
+        content: "{{ hostname }}\n"
+        dest: /etc/hostname
+
+    - name: Install systemd-boot
+      ansible.builtin.command:
+        cmd: bootctl install --esp-path=/boot --variables=yes
+        creates: /boot/EFI/systemd/systemd-bootx64.efi
+
+    - name: Get root filesystem UUID
+      ansible.builtin.command: findmnt -no UUID /
+      register: root_uuid
+      changed_when: false
+
+    - name: Create boot entry
+      ansible.builtin.copy:
+        content: |
+          title Arch Linux
+          linux /vmlinuz-linux
+          initrd /intel-ucode.img
+          initrd /initramfs-linux.img
+          options root=UUID={{ root_uuid.stdout }} rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
+        dest: /boot/loader/entries/arch.conf
+
+    - name: Set root password
+      ansible.builtin.user:
+        name: root
+        password: "{{ user_password_hash }}"
+      no_log: true
+
+    - name: Create user
+      ansible.builtin.user:
+        name: "{{ username }}"
+        password: "{{ user_password_hash }}"
+        groups: "{{ user_groups }}"
+        shell: "{{ user_shell }}"
+        append: true
+      no_log: true
+
+    - name: Import repository keys
+      ansible.builtin.command: pacman-key --recv-keys {{ item }} --keyserver keyserver.ubuntu.com
+      loop: "{{ repo_keys }}"
+
+    - name: Trust repository keys
+      ansible.builtin.command: pacman-key --lsign-key {{ item }}
+      loop: "{{ repo_keys }}"
+
+    - name: Install repository packages
+      ansible.builtin.command:
+        argv: "{{ ['pacman', '-U', '--needed', '--noconfirm'] + repos }}"
+
+    - name: Set up dotfiles
+      become: true
+      become_user: "{{ username }}"
+      block:
+        - name: Clone dotfiles
+          ansible.builtin.git:
+            repo: "{{ dotfiles_repo }}"
+            dest: "{{ dotfiles_git_dir }}"
+            bare: true
+            update: false
+          register: dotfiles_clone
+
+        - name: Disable bare mode
+          ansible.builtin.command:
+            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, core.bare, "false"]
+          changed_when: false
+
+        - name: Set work tree to home directory
+          ansible.builtin.command:
+            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, core.worktree, "{{ dotfiles_work_tree }}"]
+          changed_when: false
+
+        - name: Hide untracked files in status
+          ansible.builtin.command:
+            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, status.showUntrackedFiles, "no"]
+          changed_when: false
+
+        - name: Check out dotfiles
+          ansible.builtin.command:
+            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", --work-tree, "{{ dotfiles_work_tree }}", checkout]
+          when: dotfiles_clone.changed
+
+    - name: Copy system configuration from dotfiles
+      ansible.builtin.command:
+        argv: [cp, -rT, "{{ dotfiles_root }}", /]
+
+    - name: Upgrade system
+      community.general.pacman:
+        update_cache: true
+        upgrade: true
+        upgrade_extra_args: --ask=4
+
+    - name: Install GPU drivers
+      community.general.pacman:
+        name: "{{ GPU_drivers | map('extract', gpu_packages) | flatten | unique }}"
+        state: present
+
+    - name: Read official package list
+      ansible.builtin.slurp:
+        src: "{{ dotfiles_packages }}/packages-repo.txt"
+      register: repo_list
+
+    - name: Install official packages
+      community.general.pacman:
+        name: "{{ (repo_list.content | b64decode).split() }}"
+        state: present
+        extra_args: --overwrite '/opt/*'
+
+    - name: Read AUR package list
+      ansible.builtin.slurp:
+        src: "{{ dotfiles_packages }}/packages-aur.txt"
+      register: aur_list
+
+    - name: Allow passwordless pacman for AUR builds
+      ansible.builtin.copy:
+        content: |
+          Defaults:{{ username }} verifypw=any
+          {{ username }} ALL=(ALL) NOPASSWD: /usr/bin/pacman
+        dest: /etc/sudoers.d/99-aur-install
+        mode: "0440"
+
+    - name: Install AUR packages
+      become: true
+      become_user: "{{ username }}"
+      ansible.builtin.command:
+        argv: "{{ ['yay', '-S', '--needed', '--noconfirm'] + (aur_list.content | b64decode).split() }}"
+      register: aur_result
+      failed_when: false
+
+    - name: Report failed AUR packages
+      ansible.builtin.debug:
+        msg: "{{ (aur_result.stderr_lines | select('match', '^\\S+ - exit status') | list) or aur_result.stderr_lines[-10:] }}"
+      when: aur_result.rc != 0
+
+    - name: Remove passwordless pacman
+      ansible.builtin.file:
+        path: /etc/sudoers.d/99-aur-install
+        state: absent
+
+    - name: Run user setup script
+      become: true
+      become_user: "{{ username }}"
+      ansible.builtin.command: "{{ user_script }}"
+
+    - name: Enable services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+      loop: "{{ services_enabled }}"
+
+    - name: Disable services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: false
+      loop: "{{ services_disabled }}"
+
+    - name: Mask services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        masked: true
+      loop: "{{ services_masked }}"
+
+
+

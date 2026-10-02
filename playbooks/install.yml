@@ -1,4 +1,4 @@
-- name: Prepare disks
+- name: Install
   hosts: iso
   gather_facts: false
   vars:
@@ -7,6 +7,7 @@
       - { dev: /dev/nvme0n1p5, fstype: xfs, mount: /mnt, size: 70 }
       - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
 
+#TODO: remove unnecessary
     pacstrap_packages:
       - base
       - base-devel
@@ -86,12 +87,20 @@
         cmd: arch-chroot /mnt ssh-keygen -A
         creates: /mnt/etc/ssh/ssh_host_ed25519_key
 
+#TODO: use keys instead
     - name: Remove root password
       ansible.builtin.command: arch-chroot /mnt passwd -d root
       changed_when: false
 
+    - name: Point resolv.conf to resolvconf
+      ansible.builtin.file:
+        src: /run/resolvconf/resolv.conf
+        dest: /mnt/etc/resolv.conf
+        state: link
+        force: true
+
     - name: Start sshd on the install system
       ansible.builtin.command: arch-chroot /mnt /usr/bin/sshd -D -p 2222 -o PermitRootLogin=yes -o PermitEmptyPasswords=yes
-      async: 7200
+      async: 86400
       poll: 0
       changed_when: false
