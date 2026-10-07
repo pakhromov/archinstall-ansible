@@ -8,23 +8,7 @@
       - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
 
 #TODO: remove unnecessary
-    pacstrap_packages:
-      - base
-      - base-devel
-      - git
-      - linux
-      - linux-firmware
-      - sudo
-      - micro
-      - intel-ucode
-      - iwd
-      - impala
-      - efibootmgr
-      - networkmanager
-      - openresolv
-      - man-db
-      - python
-      - openssh
+    pacstrap_packages: [base, base-devel, git, linux, linux-firmware, sudo, micro, intel-ucode, iwd, impala, efibootmgr, networkmanager, openresolv, man-db, python, openssh]
 
   tasks:
 

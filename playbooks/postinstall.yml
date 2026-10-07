@@ -17,23 +17,10 @@
     username: pavel
     user_groups: [wheel]
     user_shell: /usr/bin/zsh
-    dotfiles_repo: https://github.com/pakhromov/dotfiles.git
-    dotfiles_git_dir: "/home/{{ username }}/.dotfiles-git"
-    dotfiles_work_tree: "/home/{{ username }}"
-    dotfiles_root: "/home/{{ username }}/.local/share/postinstall/root"
-    dotfiles_packages: "/home/{{ username }}/.local/share/postinstall"
-    user_script: "/home/{{ username }}/.local/share/postinstall/setup.sh"
-    repo_keys:
-      - 3056513887B78AEB   # chaotic-aur
-      - F3B607488DB35A47   # cachyos
-    repos:
-      - https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst
-      - https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst
-      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-keyring-20240331-1-any.pkg.tar.zst
-      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-mirrorlist-27-1-any.pkg.tar.zst
-      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-v3-mirrorlist-27-1-any.pkg.tar.zst
-      - https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos-v4-mirrorlist-27-1-any.pkg.tar.zst
-      - https://mirror.cachyos.org/repo/x86_64/cachyos/pacman-7.1.0.r9.g54d9411-4-x86_64.pkg.tar.zst
+    packages: packages.txt
+    pacman_install_flags: --overwrite '/opt/*'
+    pre_install_script: files/pre-install.sh
+    post_install_script: files/post-install.sh
 
     GPU_drivers: [intel]
     gpu_packages:
@@ -120,53 +107,10 @@
         append: true
       no_log: true
 
-    - name: Import repository keys
-      ansible.builtin.command: pacman-key --recv-keys {{ item }} --keyserver keyserver.ubuntu.com
-      loop: "{{ repo_keys }}"
-
-    - name: Trust repository keys
-      ansible.builtin.command: pacman-key --lsign-key {{ item }}
-      loop: "{{ repo_keys }}"
-
-    - name: Install repository packages
-      ansible.builtin.command:
-        argv: "{{ ['pacman', '-U', '--needed', '--noconfirm'] + repos }}"
-
-    - name: Set up dotfiles
-      become: true
-      become_user: "{{ username }}"
-      block:
-        - name: Clone dotfiles
-          ansible.builtin.git:
-            repo: "{{ dotfiles_repo }}"
-            dest: "{{ dotfiles_git_dir }}"
-            bare: true
-            update: false
-          register: dotfiles_clone
-
-        - name: Disable bare mode
-          ansible.builtin.command:
-            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, core.bare, "false"]
-          changed_when: false
-
-        - name: Set work tree to home directory
-          ansible.builtin.command:
-            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, core.worktree, "{{ dotfiles_work_tree }}"]
-          changed_when: false
-
-        - name: Hide untracked files in status
-          ansible.builtin.command:
-            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", config, status.showUntrackedFiles, "no"]
-          changed_when: false
-
-        - name: Check out dotfiles
-          ansible.builtin.command:
-            argv: [git, --git-dir, "{{ dotfiles_git_dir }}", --work-tree, "{{ dotfiles_work_tree }}", checkout]
-          when: dotfiles_clone.changed
-
-    - name: Copy system configuration from dotfiles
-      ansible.builtin.command:
-        argv: [cp, -rT, "{{ dotfiles_root }}", /]
+    - name: Run pre-install script
+      ansible.builtin.script:
+        cmd: "{{pre_install_script}}"
+      when: pre_install_script | default('', true) | length > 0
 
     - name: Upgrade system
       community.general.pacman:
@@ -179,52 +123,37 @@
         name: "{{ GPU_drivers | map('extract', gpu_packages) | flatten | unique }}"
         state: present
 
-    - name: Read official package list
-      ansible.builtin.slurp:
-        src: "{{ dotfiles_packages }}/packages-repo.txt"
-      register: repo_list
-
-    - name: Install official packages
+    - name: Install packages
       community.general.pacman:
-        name: "{{ (repo_list.content | b64decode).split() }}"
+        name: "{{ lookup('file', packages).splitlines() | map('trim') | reject('match', '#|$') | list }}"
         state: present
-        extra_args: --overwrite '/opt/*'
+        extra_args: "{{pacman_install_flags}}"
 
-    - name: Read AUR package list
-      ansible.builtin.slurp:
-        src: "{{ dotfiles_packages }}/packages-aur.txt"
-      register: aur_list
+    - name: Run post-install user script
+      when: post_install_script | default('', true) | length > 0
+      block:
+        - name: Allow passwordless sudo for the post-install script
+          ansible.builtin.copy:
+            content: |
+              Defaults:{{ username }} verifypw=any
+              {{ username }} ALL=(ALL:ALL) NOPASSWD: ALL
+            dest: /etc/sudoers.d/zz-post-install
+            mode: "0440"
+            validate: visudo -cf %s
 
-    - name: Allow passwordless pacman for AUR builds
-      ansible.builtin.copy:
-        content: |
-          Defaults:{{ username }} verifypw=any
-          {{ username }} ALL=(ALL) NOPASSWD: /usr/bin/pacman
-        dest: /etc/sudoers.d/99-aur-install
-        mode: "0440"
+        - name: Run post-install user script
+          become: true
+          become_user: "{{ username }}"
+          ansible.builtin.script:
+            cmd: "{{ post_install_script }}"
+          environment:
+            PATH: "{{ ansible_env.PATH }}:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
 
-    - name: Install AUR packages
-      become: true
-      become_user: "{{ username }}"
-      ansible.builtin.command:
-        argv: "{{ ['yay', '-S', '--needed', '--noconfirm'] + (aur_list.content | b64decode).split() }}"
-      register: aur_result
-      failed_when: false
-
-    - name: Report failed AUR packages
-      ansible.builtin.debug:
-        msg: "{{ (aur_result.stderr_lines | select('match', '^\\S+ - exit status') | list) or aur_result.stderr_lines[-10:] }}"
-      when: aur_result.rc != 0
-
-    - name: Remove passwordless pacman
-      ansible.builtin.file:
-        path: /etc/sudoers.d/99-aur-install
-        state: absent
-
-    - name: Run user setup script
-      become: true
-      become_user: "{{ username }}"
-      ansible.builtin.command: "{{ user_script }}"
+      always:
+        - name: Remove passwordless sudo
+          ansible.builtin.file:
+            path: /etc/sudoers.d/zz-post-install
+            state: absent
 
     - name: Enable services
       ansible.builtin.systemd_service:
