@@ -2,25 +2,23 @@
   hosts: iso
   gather_facts: false
   vars:
+    disk: /dev/nvme0n1
     filesystems:
       - { dev: /dev/nvme0n1p4, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
       - { dev: /dev/nvme0n1p5, fstype: xfs, mount: /mnt, size: 70 }
       - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
 
-#TODO: remove unnecessary
-    pacstrap_packages: [base, base-devel, git, linux, linux-firmware, sudo, micro, intel-ucode, iwd, impala, efibootmgr, networkmanager, openresolv, man-db, python, openssh]
-
   tasks:
 
     - name: Check disk partitions
       community.general.parted:
-        device: /dev/nvme0n1
+        device: "{{disk}}"
         state: info
       register: disk_info
 
     - name: Create disk partitions
       community.general.parted:
-        device: /dev/nvme0n1
+        device: "{{disk}}"
         label: gpt
         number: "{{ i + 1 }}"
         part_start: "{{ (filesystems[:i] | map(attribute='size') | sum) * 1024 + 1 }}MiB"
@@ -53,7 +51,7 @@
 
     - name: Pacstrap
       ansible.builtin.command:
-        argv: "{{ ['pacstrap', '-K', '/mnt'] + pacstrap_packages }}"
+        cmd: pacstrap -K /mnt base python openssh
         creates: /mnt/usr/bin/pacman
 
     - name: Generate fstab
@@ -71,20 +69,19 @@
         cmd: arch-chroot /mnt ssh-keygen -A
         creates: /mnt/etc/ssh/ssh_host_ed25519_key
 
-#TODO: use keys instead
-    - name: Remove root password
-      ansible.builtin.command: arch-chroot /mnt passwd -d root
+    - name: Set temporary root password
+      ansible.builtin.command:
+        cmd: arch-chroot /mnt chpasswd
+        stdin: "root:{{ tmp_root_password }}"
       changed_when: false
 
-    - name: Point resolv.conf to resolvconf
-      ansible.builtin.file:
-        src: /run/resolvconf/resolv.conf
-        dest: /mnt/etc/resolv.conf
-        state: link
-        force: true
-
     - name: Start sshd on the install system
-      ansible.builtin.command: arch-chroot /mnt /usr/bin/sshd -D -p 2222 -o PermitRootLogin=yes -o PermitEmptyPasswords=yes
+      ansible.builtin.command: arch-chroot /mnt /usr/bin/sshd -D -p 2222 -o PermitRootLogin=yes
       async: 86400
       poll: 0
       changed_when: false
+
+    - name: Stop the live ISO's sshd
+      ansible.builtin.systemd_service:
+        name: sshd
+        state: stopped

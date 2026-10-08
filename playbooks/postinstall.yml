@@ -13,20 +13,23 @@
     timezone: Europe/Stockholm
     locale: en_US.UTF-8
     lang: en_US.UTF-8
+    console_keymap: us
     hostname: archlinux
     username: pavel
     user_groups: [wheel]
     user_shell: /usr/bin/zsh
     packages: packages.txt
+    pacman_upgrade_flags: --ask=4
     pacman_install_flags: --overwrite '/opt/*'
     pre_install_script: files/pre-install.sh
     post_install_script: files/post-install.sh
+    kernel_params: rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
+    core_packages: [linux, linux-firmware, intel-ucode, base-devel, iwd, efibootmgr, git, sudo, openresolv, man-db, zsh, gpu_intel]
 
-    GPU_drivers: [intel]
     gpu_packages:
-      nvidia: [nvidia-open, nvidia-utils, lib32-nvidia-utils, libva-nvidia-driver]
-      amd: [mesa, lib32-mesa, vulkan-radeon, lib32-vulkan-radeon]
-      intel: [mesa, lib32-mesa, vulkan-intel, lib32-vulkan-intel, intel-media-driver]
+      gpu_nvidia: [nvidia-open, nvidia-utils, libva-nvidia-driver]
+      gpu_amd: [mesa, vulkan-radeon]
+      gpu_intel: [mesa, vulkan-intel, intel-media-driver]
 
     services_enabled:
       - iwd
@@ -50,6 +53,17 @@
 
 
   tasks:
+
+    - name: Install core packages
+      vars:
+        core: "{{ core_packages | default([], true) }}"
+        gpu: "{{ gpu_packages | default({}, true) }}"
+      community.general.pacman:
+        update_cache: true
+        name: "{{ (core | difference(gpu)) + (core | intersect(gpu) | map('extract', gpu) | flatten) | unique }}"
+        state: present
+      when: core | length > 0
+
     - name: Set timezone
       ansible.builtin.file:
         src: "/usr/share/zoneinfo/{{ timezone }}"
@@ -67,10 +81,20 @@
         content: "LANG={{ lang }}\n"
         dest: /etc/locale.conf
 
+    - name: Set console keymap
+      ansible.builtin.copy:
+        content: "KEYMAP={{ console_keymap }}\n"
+        dest: /etc/vconsole.conf
+
     - name: Set hostname
       ansible.builtin.copy:
         content: "{{ hostname }}\n"
         dest: /etc/hostname
+
+    - name: Add localhost to /etc/hosts
+      ansible.builtin.copy:
+        content: "127.0.0.1 localhost\n::1 localhost\n"
+        dest: /etc/hosts
 
     - name: Install systemd-boot
       ansible.builtin.command:
@@ -87,47 +111,59 @@
         content: |
           title Arch Linux
           linux /vmlinuz-linux
-          initrd /intel-ucode.img
           initrd /initramfs-linux.img
-          options root=UUID={{ root_uuid.stdout }} rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
+          options root=UUID={{ root_uuid.stdout }} {{ kernel_params }}
         dest: /boot/loader/entries/arch.conf
 
-    - name: Set root password
-      ansible.builtin.user:
-        name: root
-        password: "{{ user_password_hash }}"
-      no_log: true
-
-    - name: Create user
-      ansible.builtin.user:
-        name: "{{ username }}"
-        password: "{{ user_password_hash }}"
-        groups: "{{ user_groups }}"
-        shell: "{{ user_shell }}"
-        append: true
-      no_log: true
+    - name: Enable systemd-boot updates
+      ansible.builtin.systemd_service:
+        name: systemd-boot-update.service
+        enabled: true
 
     - name: Run pre-install script
-      ansible.builtin.script:
-        cmd: "{{pre_install_script}}"
       when: pre_install_script | default('', true) | length > 0
+      block:
+        - name: Run pre-install script
+          ansible.builtin.script:
+            cmd: "{{ pre_install_script }}"
+          register: pre_install_result
+          failed_when: false
+
+        - name: Show pre-install script errors
+          ansible.builtin.debug:
+            var: pre_install_result.stderr_lines
+          when: pre_install_result.rc != 0
+          failed_when: true
 
     - name: Upgrade system
       community.general.pacman:
         update_cache: true
         upgrade: true
-        upgrade_extra_args: --ask=4
-
-    - name: Install GPU drivers
-      community.general.pacman:
-        name: "{{ GPU_drivers | map('extract', gpu_packages) | flatten | unique }}"
-        state: present
+        upgrade_extra_args: "{{ pacman_upgrade_flags | default('', true) }}"
 
     - name: Install packages
       community.general.pacman:
         name: "{{ lookup('file', packages).splitlines() | map('trim') | reject('match', '#|$') | list }}"
         state: present
-        extra_args: "{{pacman_install_flags}}"
+        extra_args: "{{ pacman_install_flags | default('', true) }}"
+      when: packages | default('', true) | length > 0
+
+    - name: Create user
+      ansible.builtin.user:
+        name: "{{ username }}"
+        password: "{{ user_password_hash }}"
+        groups: "{{ user_groups | default(omit, true) }}"
+        shell: "{{ user_shell | default(omit, true) }}"
+        append: true
+      no_log: true
+
+    - name: Allow wheel group to use sudo
+      ansible.builtin.copy:
+        content: "%wheel ALL=(ALL:ALL) ALL\n"
+        dest: /etc/sudoers.d/00-wheel
+        mode: "0440"
+        validate: visudo -cf %s
+      when: "'wheel' in (user_groups | default([], true))"
 
     - name: Run post-install user script
       when: post_install_script | default('', true) | length > 0
@@ -148,6 +184,14 @@
             cmd: "{{ post_install_script }}"
           environment:
             PATH: "{{ ansible_env.PATH }}:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
+          register: post_install_result
+          failed_when: false
+
+        - name: Show post-install script errors
+          ansible.builtin.debug:
+            var: post_install_result.stderr_lines
+          when: post_install_result.rc != 0
+          failed_when: true
 
       always:
         - name: Remove passwordless sudo
@@ -159,19 +203,29 @@
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         enabled: true
-      loop: "{{ services_enabled }}"
+      loop: "{{ services_enabled | default([], true) }}"
 
     - name: Disable services
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         enabled: false
-      loop: "{{ services_disabled }}"
+      loop: "{{ services_disabled | default([], true) }}"
 
     - name: Mask services
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         masked: true
-      loop: "{{ services_masked }}"
+      loop: "{{ services_masked | default([], true) }}"
+
+    - name: Update initramfs
+      ansible.builtin.command:
+        cmd: mkinitcpio -P
+
+    - name: Set root password
+      ansible.builtin.user:
+        name: root
+        password: "{{ user_password_hash }}"
+      no_log: true
 
 
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
+set -Eo pipefail
+errors=()
+trap 'errors+=("line $LINENO: $BASH_COMMAND (exit $?)")' ERR
 
 pacman -S --needed --noconfirm curl
 echo "==> Adding Chaotic-AUR repo..."
@@ -22,6 +24,10 @@ pacman -U --noconfirm \
 pacman -S --needed --noconfirm git
 echo "==> Cloning dotfiles..."
 rm -rf /tmp/dotfiles
-git clone https://github.com/pakhromov/dotfiles /tmp/dotfiles
+git clone -q https://github.com/pakhromov/dotfiles /tmp/dotfiles
 cp -rT "/tmp/dotfiles/.local/share/postinstall/root" /
 
+if (( ${#errors[@]} )); then
+    printf '%s\n' "${errors[@]}" >&2
+    exit 1
+fi
