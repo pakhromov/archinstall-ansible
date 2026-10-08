@@ -3,7 +3,7 @@
 set -Eo pipefail
 errors=()
 trap 'errors+=("line $LINENO: $BASH_COMMAND (exit $?)")' ERR
-
+export GIT_TERMINAL_PROMPT=0
 clone() { [[ -d "${@: -1}" ]] || git clone -q "$@"; }
 
 REPO="pakhromov/dotfiles"
@@ -48,15 +48,58 @@ clone https://github.com/pakhromov/xcursor-preview.yazi           "$HOME/.config
 
 echo "==> Cloning Sublime Text plugins..."
 clone --branch personal https://github.com/pakhromov/TabBarTools  "$HOME/.config/sublime-text/Packages/TabBarTools"
-clone https://github.com/pakhromov/WordHighlight                  "$HOME/.config/sublime-text/Packages/WordHighlight"
 clone https://github.com/pakhromov/QColor                         "$HOME/.config/sublime-text/Packages/QColor"
 
 echo "==> Installing AUR packages..."
-yay -S --needed --noconfirm - < "$DOTFILES/packages-aur.txt"
+yay -S --needed --noconfirm - <<'EOF'
+acestream-engine
+alsa-switch
+calendar-git
+cclip
+ccstatusline
+clock-rs-git
+dulcepan-git
+flow-control-nightly-bin
+focus-bin
+fsel
+ghgrab-bin
+grabit-bin
+iwmenu-bin
+lazydlp-bin
+lidm-bin
+lidm-systemd
+localsend-go-bin
+lore-bin
+mako-daemonless
+mark-shot
+mcat-bin
+monstar
+mousam
+pdf2img-c
+python-undervolt
+python-xlsx2csv
+pywayfire-git
+rar
+rich-cli
+scrop-bin
+seekey
+shanns-liga-nerd-font
+shmooz
+sidex-bin
+surge-bin
+tparted-bin
+vala-rofi-polkit
+vpn-shell
+wayfire-plugins-extra-git
+wayscriber-bin
+wcm-git
+wlrctl
+xytz-bin
+yzf
+zzzclip
+EOF
 
 d=$(mktemp -d) && printf "[org/gnome/desktop/interface]\ngtk-theme='Materia-dark-compact'\ncursor-theme='LiOSV'\ncursor-size=24\nfont-name='ComicShannsLigaMod Nerd Font 12'\n" > "$d/settings" && mkdir -p ~/.config/dconf && dconf compile ~/.config/dconf/user "$d" && rm -r "$d"
-
-update-mime-database ~/.local/share/mime
 
 sudo cp -rT "$DOTFILES/root" /
 

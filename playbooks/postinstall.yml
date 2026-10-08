@@ -24,7 +24,7 @@
     pre_install_script: files/pre-install.sh
     post_install_script: files/post-install.sh
     kernel_params: rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
-    core_packages: [linux, linux-firmware, intel-ucode, base-devel, iwd, efibootmgr, git, sudo, openresolv, man-db, zsh, gpu_intel]
+    core_packages: [linux, linux-firmware, intel-ucode, base-devel, iwd, efibootmgr, git, sudo, openresolv, man-db, zsh, xfsprogs, dosfstools, gpu_intel]
 
     gpu_packages:
       gpu_nvidia: [nvidia-open, nvidia-utils, libva-nvidia-driver]
@@ -131,9 +131,13 @@
 
         - name: Show pre-install script errors
           ansible.builtin.debug:
-            var: pre_install_result.stderr_lines
+            msg: "{{ pre_install_result.stdout_lines | map('regex_replace', '\\x1b(\\[[0-?]*[ -/]*[@-~]|\\][^\\x07\\x1b]*(\\x07|\\x1b\\\\)|\\([0-9A-Za-z])', '') | list }}"
           when: pre_install_result.rc != 0
-          failed_when: true
+
+        - name: Stop if the pre-install script failed
+          ansible.builtin.fail:
+            msg: "pre-install script exited with code {{ pre_install_result.rc }}"
+          when: pre_install_result.rc != 0
 
     - name: Upgrade system
       community.general.pacman:
@@ -183,15 +187,19 @@
           ansible.builtin.script:
             cmd: "{{ post_install_script }}"
           environment:
-            PATH: "{{ ansible_env.PATH }}:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
+            PATH: "{{ ansible_facts.env.PATH }}:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl"
           register: post_install_result
           failed_when: false
 
         - name: Show post-install script errors
           ansible.builtin.debug:
-            var: post_install_result.stderr_lines
+            msg: "{{ post_install_result.stdout_lines | map('regex_replace', '\\x1b(\\[[0-?]*[ -/]*[@-~]|\\][^\\x07\\x1b]*(\\x07|\\x1b\\\\)|\\([0-9A-Za-z])', '') | list }}"
           when: post_install_result.rc != 0
-          failed_when: true
+
+        - name: Stop if the post-install script failed
+          ansible.builtin.fail:
+            msg: "post-install script exited with code {{ post_install_result.rc }}"
+          when: post_install_result.rc != 0
 
       always:
         - name: Remove passwordless sudo

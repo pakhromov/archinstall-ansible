@@ -35,8 +35,8 @@ Everything specific to you goes into two optional scripts in `playbooks/files/`:
 
 The rules for both scripts:
 - They are copied from your machine and run on the target. They need a shebang, e.g. `#!/usr/bin/env bash`.
-- A non-zero exit code stops the playbook, and the script's `stderr` is displayed.
-- `stdout` is not visible during the run, `stdin` is not your TTY, so don't use interactive elements.
+- A non-zero exit code stops the playbook, and the script's `stdout` and `stderr` are displayed after the fact.
+- `stdin` is not your TTY, so make every command non-interactive (e.g. `--noconfirm` for pacman/yay, `GIT_TERMINAL_PROMPT=0` for git).
 - They run in full on every re-run, so write them to be re-run-safe (e.g. skip `git clone` if the directory exists).
 - They don't run in a login shell. The post-install script gets Arch's Perl directories added to PATH (some AUR builds need them).
 
