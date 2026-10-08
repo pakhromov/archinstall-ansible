@@ -78,13 +78,7 @@ Set the variables in `config.yml` and create `playbooks/files/` with your files 
 ansible-playbook playbooks/install.yml
 ansible-playbook playbooks/postinstall.yml
 ```
-
-After the install stop the chroot sshd, unmount, and reboot:
-```sh
-pkill -f 'sshd -D -p 2222'
-umount -R /mnt
-reboot
-```
+After the successful install you can reboot straight into your system.
 
 ## Configuration
 
@@ -100,9 +94,15 @@ playbooks/
     └── post-install.sh      # optional hook, runs as your user
 ```
 
-The `files/` directory is gitignored, so create it yourself and put your own files there (see `examples/` for inspiration). Configuration of the actual playbook modules is done by modifying the variables defined in `config.yml`. Everything is rather self-explanatory.
+The `files/` directory is gitignored, so create it yourself and put your own files there (see `examples/` for inspiration). Configuration of the actual playbook modules is done by modifying the variables defined in `config.yml`. Everything is rather self-explanatory, the provided default config is what I personally use to install Arch, so it is rather opinionated.
 
 **Never remove a variable.** If you want to skip some optional steps - leave its variable's value empty. These are the required variables that cannot be empty, everything else optional: `target_ip`, `tmp_root_password`, `disk`, `filesystems`, `timezone`, `locale`, `lang`, `console_keymap`, `hostname`, `username`
+
+### Partitions and filesystems
+
+If the disk has no partitions at all, a new GPT partition table is created with partitions as defined in `filesystems` (in list order - the first entry becomes partition 1, the second partition 2, and so on). The partitions are configured with `size` in GiB, and an entry with `flags: [esp]` gets the EFI System type. Space after the last partition stays unallocated. If the disk already has any partition, nothing is partitioned, size and flags are ignored and the existing partitions are used as given (you are responsible for partitioning and configuring `filesystems` correctly). A partition that already has a filesystem signature is never reused, skipped, or formatted, the play just stops at that point.
+
+### Config options
 
 | variable | meaning |
 |---|---|
