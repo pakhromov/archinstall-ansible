@@ -23,9 +23,9 @@ pacman -U --noconfirm \
 
 pacman -S --needed --noconfirm git
 echo "==> Cloning dotfiles..."
+git clone https://github.com/pakhromov/dotfiles /tmp/dotfiles
+cp -rT "/tmp/dotfiles/.local/lib/archinstall-ansible/root" /
 rm -rf /tmp/dotfiles
-git clone -q https://github.com/pakhromov/dotfiles /tmp/dotfiles
-cp -rT "/tmp/dotfiles/.local/share/postinstall/root" /
 
 if (( ${#errors[@]} )); then
     printf '%s\n' "${errors[@]}" >&2

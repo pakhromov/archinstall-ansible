@@ -7,7 +7,7 @@ export GIT_TERMINAL_PROMPT=0
 clone() { [[ -d "${@: -1}" ]] || git clone -q "$@"; }
 
 REPO="pakhromov/dotfiles"
-DOTFILES="$HOME/.local/share/postinstall"
+DOTFILES="$HOME/.local/lib/archinstall-ansible"
 GIT_DIR="$HOME/.dotfiles-git"
 
 
@@ -26,8 +26,6 @@ clone https://github.com/pakhromov/zsh-autosuggestions              "$HOME/.conf
 echo "==> Cloning yazi plugins..."
 clone https://github.com/alberti42/faster-piper.yazi.git          "$HOME/.config/yazi/plugins/faster-piper.yazi"
 clone https://github.com/BBOOXX/file-actions.yazi.git             "$HOME/.config/yazi/plugins/file-actions.yazi"
-rm -rf "$HOME/.config/yazi/plugins/file-actions.yazi/actions"
-ln -sf "$HOME/.config/yazi/actions" "$HOME/.config/yazi/plugins/file-actions.yazi/actions"
 clone https://github.com/boydaihungst/mediainfo.yazi.git          "$HOME/.config/yazi/plugins/mediainfo.yazi"
 clone https://github.com/uhs-robert/recycle-bin.yazi.git          "$HOME/.config/yazi/plugins/recycle-bin.yazi"
 clone https://github.com/uhs-robert/sshfs.yazi.git                "$HOME/.config/yazi/plugins/sshfs.yazi"
@@ -46,16 +44,10 @@ clone https://github.com/pakhromov/autosave.yazi                  "$HOME/.config
 clone https://github.com/pakhromov/paste-navigate.yazi            "$HOME/.config/yazi/plugins/paste-navigate.yazi"
 clone https://github.com/pakhromov/xcursor-preview.yazi           "$HOME/.config/yazi/plugins/xcursor-preview.yazi"
 
-echo "==> Cloning Sublime Text plugins..."
-clone --branch personal https://github.com/pakhromov/TabBarTools  "$HOME/.config/sublime-text/Packages/TabBarTools"
-clone https://github.com/pakhromov/QColor                         "$HOME/.config/sublime-text/Packages/QColor"
-
 echo "==> Installing AUR packages..."
 yay -S --needed --noconfirm - <<'EOF'
-acestream-engine
 alsa-switch
 calendar-git
-cclip
 ccstatusline
 clock-rs-git
 dulcepan-git
@@ -71,30 +63,15 @@ lidm-systemd
 localsend-go-bin
 lore-bin
 mako-daemonless
-mark-shot
 mcat-bin
-monstar
-mousam
-pdf2img-c
 python-undervolt
 python-xlsx2csv
-pywayfire-git
-rar
 rich-cli
-scrop-bin
-seekey
 shanns-liga-nerd-font
-shmooz
-sidex-bin
-surge-bin
-tparted-bin
 vala-rofi-polkit
 vpn-shell
-wayfire-plugins-extra-git
 wayscriber-bin
-wcm-git
 wlrctl
-xytz-bin
 yzf
 zzzclip
 EOF

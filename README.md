@@ -42,7 +42,7 @@ The rules for both scripts:
 
 ### Re-running
 
-Re-running after a failure is safe, most steps check the current state first and finished steps report ok, the hook scripts run every time.
+Re-running `postinstall.yml` after a failure is safe, most steps check the current state first and finished steps report ok, the hook scripts run every time. `install.yml` is meant to be run only once (the last task stops live ISO sshd to prevent passwordless root access any further and creating filesystems once would lead to that task failing, which is the intended behavior to ensure partitioning and creation of filesystems is safe and runs only when it is intended).
 
 The root password is set last, so after a failed run the temporary password still works and you can simply run `postinstall.yml` again. After a successful complete run, root has your real password and Ansible can't connect anymore.
 
@@ -67,13 +67,13 @@ The root password is set last, so after a failed run the temporary password stil
     - Empty disk: nothing to do. The playbook creates the partitions from the `filesystems` variable.
     - Existing partitions: the playbook only formats the partitions listed in `filesystems`.
       - The ESP must have the type EFI System.
-      - A partition with an old filesystem signature is not reformatted. Clear it with `wipefs -a /dev/<partition>`.
+      - Every listed partition must have no filesystem signature, otherwise the play stops. Clear it with `wipefs -a /dev/<partition>`.
 
 **Warning:** every partition listed in `filesystems` is formatted.
 
 ### Run the playbooks
 
-Set the ISO's IP in `inventory/hosts.yml`, then set the variables in both playbooks (see Configuration). After that run both playbooks in order:
+Set the ISO's IP in `inventory/hosts.yml`, then set the variables in both playbooks and create playbooks/files/ with your files if needed (see [configuration](#configuration)). After that run both playbooks in order:
 ```sh
 ansible-playbook playbooks/install.yml
 ansible-playbook playbooks/postinstall.yml
@@ -99,6 +99,8 @@ playbooks/
     ├── pre-install.sh       # optional hook, runs as root
     └── post-install.sh      # optional hook, runs as your user
 ```
+
+The `files/` directory is gitignored, so create it yourself and put your own files there (see `examples/` for inspiration). Configuration of the actual playbook modules is done by modifying the variables defined in the beginning of each playbook. Everything is rather self-explanatory.
 
 **Never remove a variable.** If you want to skip some optional steps - leave its variable's value empty. These are the required variables that cannot be empty, everything else optional: `ansible_host`, `tmp_root_password`, `disk`, `filesystems`, `timezone`, `locale`, `lang`, `console_keymap`, `hostname`, `username`
 

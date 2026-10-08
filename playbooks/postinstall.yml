@@ -24,7 +24,7 @@
     pre_install_script: files/pre-install.sh
     post_install_script: files/post-install.sh
     kernel_params: rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
-    core_packages: [linux-firmware, intel-ucode, base-devel, iwd, git, sudo, openresolv, man-db, zsh, xfsprogs, dosfstools, mesa, vulkan-intel, intel-media-driver]
+    core_packages: [linux-firmware, intel-ucode, base-devel, iwd, git, sudo, openresolv, man-db, man-pages, zsh, xfsprogs, dosfstools, mesa, vulkan-intel, intel-media-driver, sof-firmware]
     #
     # Pick what fits your hardware and setup, `linux` and `efibootmgr` are always installed:
     #
@@ -34,7 +34,7 @@
     #
     # Firmware:
     #   linux-firmware  - meta package
-    #   sof-firmware    - - sound on most Intel laptops from ~2019 on
+    #   sof-firmware    - sound on most Intel laptops from ~2019 on
     #
     # Filesystem tools (mkinitcpio needs them):
     #   ext4: e2fsprogs
@@ -85,6 +85,7 @@
     services_masked:
       - user@.service
       - rtkit-daemon
+      - iio-sensor-proxy
 
 
   tasks:
@@ -135,14 +136,14 @@
             creates: /boot/EFI/systemd/systemd-bootx64.efi
 
         - name: Get ESP disk, partition number, root UUID and UEFI boot entries
-          ansible.builtin.shell: lsblk -no PKNAME,PARTN "$(findmnt -no SOURCE /boot)" && findmnt -no UUID / && efibootmgr
+          ansible.builtin.shell: lsblk -no PKNAME,PARTN,PARTUUID "$(findmnt -no SOURCE /boot)" && findmnt -no UUID / && efibootmgr
           register: boot_info
           changed_when: false
 
         - name: Create UEFI boot entry
           ansible.builtin.command: >-
             efibootmgr --create --disk /dev/{{ boot_info.stdout.split()[0] }} --part {{ boot_info.stdout.split()[1] }} --loader '\EFI\systemd\systemd-bootx64.efi' --label 'Linux Boot Manager'
-          when: "'Linux Boot Manager' not in boot_info.stdout"
+          when: boot_info.stdout_lines | select('search', 'Linux Boot Manager') | select('search', boot_info.stdout.split()[2]) | list | length == 0
 
         - name: Create boot entry
           ansible.builtin.copy:
@@ -150,7 +151,7 @@
               title Arch Linux
               linux /vmlinuz-linux
               initrd /initramfs-linux.img
-              options root=UUID={{ boot_info.stdout.split()[2] }} {{ kernel_params }}
+              options root=UUID={{ boot_info.stdout.split()[3] }} {{ kernel_params }}
             dest: /boot/loader/entries/arch.conf
 
         - name: Enable systemd-boot updates

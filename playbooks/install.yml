@@ -12,13 +12,13 @@
 
     - name: Check disk partitions
       community.general.parted:
-        device: "{{disk}}"
+        device: "{{ disk }}"
         state: info
       register: disk_info
 
     - name: Create disk partitions
       community.general.parted:
-        device: "{{disk}}"
+        device: "{{ disk }}"
         label: gpt
         number: "{{ i + 1 }}"
         part_start: "{{ (filesystems[:i] | map(attribute='size') | sum) * 1024 + 1 }}MiB"
@@ -39,6 +39,8 @@
         dev: "{{ item.dev }}"
         fstype: "{{ item.fstype }}"
         opts: "{{ item.opts | default(omit) }}"
+      register: fs
+      failed_when: not fs.changed
       loop: "{{ filesystems }}"
 
     - name: Mount filesystems
