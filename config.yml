@@ -1,0 +1,107 @@
+all:
+  vars:
+    # connection
+    target_ip: 192.168.0.57
+    tmp_root_password: tmp_passwd_G*xhLX]9k-Yq55q2
+
+    # install.yml
+    disk: /dev/nvme0n1
+    filesystems:
+      - { dev: /dev/nvme0n1p4, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
+      - { dev: /dev/nvme0n1p5, fstype: xfs, mount: /mnt, size: 70 }
+      - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
+
+    # postinstall.yml
+    timezone: Europe/Stockholm
+    locale: en_US.UTF-8
+    lang: en_US.UTF-8
+    console_keymap: us
+    hostname: archlinux
+    username: pavel
+    user_groups: [wheel]
+    user_shell: /usr/bin/zsh
+    packages: packages.txt
+    pacman_upgrade_flags: --ask=4
+    pacman_install_flags: --overwrite '/opt/*'
+    pre_install_script: files/pre-install.sh
+    post_install_script: files/post-install.sh
+    kernel_params: rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
+
+    services_enabled:
+      - iwd
+      - lidm
+      - chronyd-sync
+    services_disabled:
+      - systemd-networkd.service
+      - systemd-networkd.socket
+      - systemd-networkd-resolve-hook.socket
+      - systemd-networkd-varlink.socket
+      - systemd-resolved.service
+      - systemd-resolved-monitor.socket
+      - systemd-resolved-varlink.socket
+      - getty@tty1.service
+      - systemd-timesyncd.service
+      - systemd-userdbd.service
+      - systemd-userdbd.socket
+    services_masked:
+      - user@.service
+      - rtkit-daemon
+      - iio-sensor-proxy
+
+    core_packages: [linux-firmware, intel-ucode, base-devel, iwd, git, sudo, openresolv, man-db, man-pages, zsh, xfsprogs, dosfstools, mesa, vulkan-intel, intel-media-driver, sof-firmware]
+    #
+    # Pick what fits your hardware and setup, `linux` and `efibootmgr` are always installed:
+    #
+    # CPU microcode:
+    #   Intel: intel-ucode
+    #   AMD: amd-ucode
+    #
+    # Firmware:
+    #   linux-firmware  - meta package
+    #   sof-firmware    - sound on most Intel laptops from ~2019 on
+    #
+    # Filesystem tools (mkinitcpio needs them):
+    #   ext4: e2fsprogs
+    #   xfs: xfsprogs
+    #   btrfs: btrfs-progs
+    #   vfat (ESP): dosfstools
+    #   f2fs: f2fs-tools
+    #   exfat: exfatprogs
+    #   ntfs: ntfs-3g
+    #
+    # Networking (the installed system has none until you add and enable one in services_enabled):
+    #   networkmanager  - service name: NetworkManager
+    #   iwd             - service name: iwd
+    #   dhcpcd          - service name: dhcpcd
+    #
+    # GPU drivers:
+    #   NVIDIA (GTX 16xx / RTX 20xx and newer): nvidia-open libva-nvidia-driver
+    #   AMD:   mesa vulkan-radeon
+    #   Intel: mesa vulkan-intel intel-media-driver (Broadwell and newer) or libva-intel-driver (older)
+    #   32-bit (Steam, Wine): lib32-* packages, need the multilib repo enabled
+    #
+    # Needed by other variables:
+    #   sudo           - if user_groups has `wheel`, or post_install_script is set
+    #   zsh/fish/...   - the package for user_shell
+    #   base-devel     - if your scripts build packages (makepkg, AUR helpers)
+    #
+    # Useful extras:
+    #   docs: man-db man-pages
+    #   bluetooth: bluez bluez-utils
+    #   audio: pipewire pipewire-pulse wireplumber
+
+
+
+
+
+
+# Do not edit the following block
+  hosts:
+    iso:
+      ansible_host: "{{ target_ip }}"
+      ansible_user: root
+    chroot:
+      ansible_host: "{{ target_ip }}"
+      ansible_user: root
+      ansible_port: 2222
+      ansible_password: "{{ tmp_root_password }}"

@@ -73,7 +73,7 @@ The root password is set last, so after a failed run the temporary password stil
 
 ### Run the playbooks
 
-Set the ISO's IP in `inventory/hosts.yml`, then set the variables in both playbooks and create playbooks/files/ with your files if needed (see [configuration](#configuration)). After that run both playbooks in order:
+Set the variables in `config.yml` and create `playbooks/files/` with your files if needed (see [configuration](#configuration)). After that run both playbooks in order:
 ```sh
 ansible-playbook playbooks/install.yml
 ansible-playbook playbooks/postinstall.yml
@@ -90,51 +90,26 @@ reboot
 
 ```
 ansible.cfg
-inventory/hosts.yml          # ISO IP address, temporary root password
+config.yml                   # everything is configured here
 playbooks/
-├── install.yml              # phase 1: disk partitions and filesystems
-├── postinstall.yml          # phase 2: the rest of installation configuration
+├── install.yml
+├── postinstall.yml
 └── files/
     ├── packages.txt         # optional packages to install
     ├── pre-install.sh       # optional hook, runs as root
     └── post-install.sh      # optional hook, runs as your user
 ```
 
-The `files/` directory is gitignored, so create it yourself and put your own files there (see `examples/` for inspiration). Configuration of the actual playbook modules is done by modifying the variables defined in the beginning of each playbook. Everything is rather self-explanatory.
+The `files/` directory is gitignored, so create it yourself and put your own files there (see `examples/` for inspiration). Configuration of the actual playbook modules is done by modifying the variables defined in `config.yml`. Everything is rather self-explanatory.
 
-**Never remove a variable.** If you want to skip some optional steps - leave its variable's value empty. These are the required variables that cannot be empty, everything else optional: `ansible_host`, `tmp_root_password`, `disk`, `filesystems`, `timezone`, `locale`, `lang`, `console_keymap`, `hostname`, `username`
-
-### inventory/hosts.yml
+**Never remove a variable.** If you want to skip some optional steps - leave its variable's value empty. These are the required variables that cannot be empty, everything else optional: `target_ip`, `tmp_root_password`, `disk`, `filesystems`, `timezone`, `locale`, `lang`, `console_keymap`, `hostname`, `username`
 
 | variable | meaning |
 |---|---|
-| ansible_host (both the live ISO and the chrooted system) | the ISO's IP address |
+| target_ip | the ISO's IP address |
 | tmp_root_password | temporary root password of the new system during the install |
-
-### install.yml
-
-| variable | meaning |
-|---|---|
 | disk | the target disk, e.g. `/dev/nvme0n1` |
 | filesystems | one entry per partition, in disk order |
-
-Each filesystems entry:
-
-| key | meaning |
-|---|---|
-| dev | partition device, e.g. `/dev/nvme0n1p1` |
-| fstype | e.g. `vfat`, `ext4`, `xfs` |
-| opts | optional mkfs options, e.g. `-F32` |
-| mount | mount point including `/mnt`, e.g. `/mnt`, `/mnt/boot`, `/mnt/home` |
-| size | size in GiB (used only when partitioning an empty disk) |
-| flags | optional, `[esp]` for the EFI system partition |
-
-The ESP must be the vfat entry with the `esp` flag, mounted at /mnt/boot.
-
-### postinstall.yml
-
-| variable | meaning |
-|---|---|
 | timezone | e.g. `Europe/Berlin` |
 | locale | locale to generate, e.g. `en_US.UTF-8` |
 | lang | system language (LANG) |
@@ -151,6 +126,19 @@ The ESP must be the vfat entry with the `esp` flag, mounted at /mnt/boot.
 | core_packages | packages installed first; linux and efibootmgr are always added |
 | services_enabled / services_disabled / services_masked | systemd units to enable / disable / mask |
 
+Each filesystems entry:
+
+| key | meaning |
+|---|---|
+| dev | partition device, e.g. `/dev/nvme0n1p1` |
+| fstype | e.g. `vfat`, `ext4`, `xfs` |
+| opts | optional mkfs options, e.g. `-F32` |
+| mount | mount point including `/mnt`, e.g. `/mnt`, `/mnt/boot`, `/mnt/home` |
+| size | size in GiB (used only when partitioning an empty disk) |
+| flags | optional, `[esp]` for the EFI system partition |
+
+The ESP must be the vfat entry with the `esp` flag, mounted at /mnt/boot.
+
 `packages.txt` must have one package per line. Empty lines and lines starting with # are ignored. If some package names do not exist, the play fails (fix the list and run again).
 
 ## Limitations
@@ -165,5 +153,5 @@ The ESP must be the vfat entry with the `esp` flag, mounted at /mnt/boot.
 
 ### Security notes
 
-- `tmp_root_password` is stored in plain text in the inventory. It only matters during the install. Don't reuse it for the main password.
+- `tmp_root_password` is stored in plain text in the config file. It only matters during the install. Don't reuse it for the main password.
 - During the install, the live ISO sshd accepts passwordless root logins (stopped after the `install.yml` play) and the chroot sshd accepts root logins on port 2222 with a password stored in plain sight. Don't run the install on an untrusted network.

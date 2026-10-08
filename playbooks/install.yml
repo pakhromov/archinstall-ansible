@@ -1,15 +1,8 @@
 - name: Install
   hosts: iso
   gather_facts: false
-  vars:
-    disk: /dev/nvme0n1
-    filesystems:
-      - { dev: /dev/nvme0n1p4, fstype: vfat, opts: "-F32", mount: /mnt/boot, size: 1, flags: [esp] }
-      - { dev: /dev/nvme0n1p5, fstype: xfs, mount: /mnt, size: 70 }
-      - { dev: /dev/nvme0n1p6, fstype: xfs, mount: /mnt/home, size: 100 }
 
   tasks:
-
     - name: Check disk partitions
       community.general.parted:
         device: "{{ disk }}"
