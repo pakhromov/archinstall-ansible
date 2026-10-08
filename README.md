@@ -13,9 +13,9 @@ archinstall is a way more comprehensive script compared to these playbooks, with
 ### Order of steps in postinstall.yml
 
 0. Prompt for the user password to be set
-1. Install core_packages (kernel, firmware, microcode, sudo, GPU drivers, ...)
+1. Install linux, efibootmgr and core_packages (firmware, microcode, filesystem tools, GPU drivers, ...)
 2. Timezone, locale, console keymap, hostname, /etc/hosts
-3. Install systemd-boot, create the boot entry, enable systemd-boot-update.service
+3. Install systemd-boot, create the UEFI boot entry and the loader entry, enable systemd-boot-update.service
 4. Run user-defined `Pre-install script` as root
 5. Full system upgrade before installing all packages
 6. Install everything from `packages.txt`
@@ -146,8 +146,7 @@ The ESP must be the vfat entry with the `esp` flag, mounted at /mnt/boot.
 | pacman_install_flags | extra pacman options for installing `packages.txt` |
 | pre_install_script / post_install_script | hook scripts, e.g. `files/pre-install.sh`; empty = skip |
 | kernel_params | kernel command line after `root=...`, e.g. `rw quiet` |
-| core_packages | packages installed first; may contain `gpu_*` names |
-| gpu_packages | the packages behind each `gpu_*` name |
+| core_packages | packages installed first; linux and efibootmgr are always added |
 | services_enabled / services_disabled / services_masked | systemd units to enable / disable / mask |
 
 `packages.txt` must have one package per line. Empty lines and lines starting with # are ignored. If some package names do not exist, the play fails (fix the list and run again).

@@ -24,12 +24,47 @@
     pre_install_script: files/pre-install.sh
     post_install_script: files/post-install.sh
     kernel_params: rw nvidia.NVreg_RegistryDwords=RmDisableDisplayGlitchPerfLimit=1
-    core_packages: [linux, linux-firmware, intel-ucode, base-devel, iwd, efibootmgr, git, sudo, openresolv, man-db, zsh, xfsprogs, dosfstools, gpu_intel]
-
-    gpu_packages:
-      gpu_nvidia: [nvidia-open, nvidia-utils, libva-nvidia-driver]
-      gpu_amd: [mesa, vulkan-radeon]
-      gpu_intel: [mesa, vulkan-intel, intel-media-driver]
+    core_packages: [linux-firmware, intel-ucode, base-devel, iwd, git, sudo, openresolv, man-db, zsh, xfsprogs, dosfstools, mesa, vulkan-intel, intel-media-driver]
+    #
+    # Pick what fits your hardware and setup, `linux` and `efibootmgr` are always installed:
+    #
+    # CPU microcode:
+    #   Intel: intel-ucode
+    #   AMD: amd-ucode
+    #
+    # Firmware:
+    #   linux-firmware  - meta package
+    #   sof-firmware    - - sound on most Intel laptops from ~2019 on
+    #
+    # Filesystem tools (mkinitcpio needs them):
+    #   ext4: e2fsprogs
+    #   xfs: xfsprogs
+    #   btrfs: btrfs-progs
+    #   vfat (ESP): dosfstools
+    #   f2fs: f2fs-tools
+    #   exfat: exfatprogs
+    #   ntfs: ntfs-3g
+    #
+    # Networking (the installed system has none until you add and enable one in services_enabled):
+    #   networkmanager  - service name: NetworkManager
+    #   iwd             - service name: iwd
+    #   dhcpcd          - service name: dhcpcd
+    #
+    # GPU drivers:
+    #   NVIDIA (GTX 16xx / RTX 20xx and newer): nvidia-open libva-nvidia-driver
+    #   AMD:   mesa vulkan-radeon
+    #   Intel: mesa vulkan-intel intel-media-driver (Broadwell and newer) or libva-intel-driver (older)
+    #   32-bit (Steam, Wine): lib32-* packages, need the multilib repo enabled
+    #
+    # Needed by other variables:
+    #   sudo           - if user_groups has `wheel`, or post_install_script is set
+    #   zsh/fish/...   - the package for user_shell
+    #   base-devel     - if your scripts build packages (makepkg, AUR helpers)
+    #
+    # Useful extras:
+    #   docs: man-db man-pages
+    #   bluetooth: bluez bluez-utils
+    #   audio: pipewire pipewire-pulse wireplumber
 
     services_enabled:
       - iwd
@@ -55,14 +90,10 @@
   tasks:
 
     - name: Install core packages
-      vars:
-        core: "{{ core_packages | default([], true) }}"
-        gpu: "{{ gpu_packages | default({}, true) }}"
       community.general.pacman:
         update_cache: true
-        name: "{{ (core | difference(gpu)) + (core | intersect(gpu) | map('extract', gpu) | flatten) | unique }}"
+        name: "{{ (['linux', 'efibootmgr'] + (core_packages | default([], true))) | unique }}"
         state: present
-      when: core | length > 0
 
     - name: Set timezone
       ansible.builtin.file:
@@ -96,29 +127,36 @@
         content: "127.0.0.1 localhost\n::1 localhost\n"
         dest: /etc/hosts
 
-    - name: Install systemd-boot
-      ansible.builtin.command:
-        cmd: bootctl install --esp-path=/boot --variables=yes
-        creates: /boot/EFI/systemd/systemd-bootx64.efi
+    - name: Set up systemd-boot
+      block:
+        - name: Install systemd-boot
+          ansible.builtin.command:
+            cmd: bootctl install --esp-path=/boot --variables=no
+            creates: /boot/EFI/systemd/systemd-bootx64.efi
 
-    - name: Get root filesystem UUID
-      ansible.builtin.command: findmnt -no UUID /
-      register: root_uuid
-      changed_when: false
+        - name: Get ESP disk, partition number, root UUID and UEFI boot entries
+          ansible.builtin.shell: lsblk -no PKNAME,PARTN "$(findmnt -no SOURCE /boot)" && findmnt -no UUID / && efibootmgr
+          register: boot_info
+          changed_when: false
 
-    - name: Create boot entry
-      ansible.builtin.copy:
-        content: |
-          title Arch Linux
-          linux /vmlinuz-linux
-          initrd /initramfs-linux.img
-          options root=UUID={{ root_uuid.stdout }} {{ kernel_params }}
-        dest: /boot/loader/entries/arch.conf
+        - name: Create UEFI boot entry
+          ansible.builtin.command: >-
+            efibootmgr --create --disk /dev/{{ boot_info.stdout.split()[0] }} --part {{ boot_info.stdout.split()[1] }} --loader '\EFI\systemd\systemd-bootx64.efi' --label 'Linux Boot Manager'
+          when: "'Linux Boot Manager' not in boot_info.stdout"
 
-    - name: Enable systemd-boot updates
-      ansible.builtin.systemd_service:
-        name: systemd-boot-update.service
-        enabled: true
+        - name: Create boot entry
+          ansible.builtin.copy:
+            content: |
+              title Arch Linux
+              linux /vmlinuz-linux
+              initrd /initramfs-linux.img
+              options root=UUID={{ boot_info.stdout.split()[2] }} {{ kernel_params }}
+            dest: /boot/loader/entries/arch.conf
+
+        - name: Enable systemd-boot updates
+          ansible.builtin.systemd_service:
+            name: systemd-boot-update.service
+            enabled: true
 
     - name: Run pre-install script
       when: pre_install_script | default('', true) | length > 0
